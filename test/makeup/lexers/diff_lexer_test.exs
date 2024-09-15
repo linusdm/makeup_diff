@@ -64,6 +64,12 @@ defmodule Makeup.Lexers.DiffLexerTest do
       end
     end
 
+    property "lexing by element should have the same result as lexing everything at once" do
+      check all text <- text() do
+        assert lex_by_element(text) == lex(text)
+      end
+    end
+
     test "multiple lines of changes" do
       text = """
       diff --git a/setup
@@ -117,8 +123,27 @@ defmodule Makeup.Lexers.DiffLexerTest do
 
   defp lex(text, opts \\ []) do
     text
-    |> DiffLexer.lex(group_prefix: "group")
+    |> DiffLexer.lex()
     |> Postprocess.token_values_to_binaries()
+    |> simplify_tokens(opts)
+  end
+
+  defp lex_by_element(text, tokens \\ [], opts \\ []) do
+    case DiffLexer.root_element(text) do
+      {:ok, element_tokens, "", _, _, _} ->
+        (tokens ++ element_tokens)
+        |> Postprocess.token_values_to_binaries()
+        |> DiffLexer.postprocess()
+        |> DiffLexer.match_groups()
+        |> simplify_tokens(opts)
+
+      {:ok, element_tokens, remaining, _, _, _} ->
+        lex_by_element(remaining, tokens ++ element_tokens, opts)
+    end
+  end
+
+  defp simplify_tokens(tokens, opts) do
+    tokens
     |> Enum.map(fn {type, meta, value} -> {type, Map.delete(meta, :language), value} end)
     |> then(fn tokens ->
       if Keyword.get(opts, :omit_whitespaces, false) do
